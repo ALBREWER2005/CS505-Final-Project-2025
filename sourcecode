@@ -1,0 +1,214 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Input, Dense
+from sklearn.preprocessing import LabelEncoder
+
+#load and preprocess
+df = pd.read_csv("Sleep_health_and_lifestyle_dataset.csv")
+df[['Systolic_BP', 'Diastolic_BP']] = df['Blood Pressure'].str.split('/', expand=True).astype(float)
+df.drop(columns=['Person ID', 'Blood Pressure'], inplace=True)
+
+#encode categoricals
+label_cols = ['Gender', 'Occupation', 'BMI Category', 'Sleep Disorder']
+for col in label_cols:
+    df[col] = LabelEncoder().fit_transform(df[col])
+
+#features and target
+X = np.asarray(df.drop(columns=['Sleep Disorder', 'Quality of Sleep']))
+y = np.asarray(df['Sleep Disorder'])
+k = np.unique(y).size
+
+#split data
+train_split = int(0.5 * len(y))
+val_split = int(0.75 * len(y))
+
+X_train = X[:train_split]
+y_train = y[:train_split]
+X_val = X[train_split:val_split]
+y_val = y[train_split:val_split]
+X_test = X[val_split:]
+y_test = y[val_split:]
+
+#normalize
+x_min = X_train.min(axis=0, keepdims=True)
+x_max = X_train.max(axis=0, keepdims=True)
+X_train = (X_train - x_min) / (x_max - x_min)
+X_val = (X_val - x_min) / (x_max - x_min)
+X_test = (X_test - x_min) / (x_max - x_min)
+
+#one-hot encode labels
+Y_oh_train = to_categorical(y_train, k)
+Y_oh_val = to_categorical(y_val, k)
+Y_oh_test = to_categorical(y_test, k)
+
+#define sequential model
+model = Sequential([
+    Input(shape=(X_train.shape[1],)),
+    Dense(16, activation='relu'),
+    Dense(8, activation='relu'),
+    Dense(k, activation='softmax')  # k=3 for multiclass classification
+])
+
+#compile model
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+#train
+history = model.fit(
+    X_train, Y_oh_train,
+    validation_data=(X_val, Y_oh_val),
+    epochs=10,
+    batch_size=32
+)
+
+#evaluate
+loss = model.evaluate(X_test, Y_oh_test, verbose=0)
+print('\nTest loss & accuracy:', loss)
+
+#print weights 
+W = model.get_weights()
+for ii in range(len(W)//2):
+    print(f"Layer {ii}")
+    print('Bias:\n', W[2*ii + 1])
+    print('Weights:\n', W[2*ii])
+    print()
+
+#plot loss
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.title("Loss over Epochs")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.grid()
+plt.show()
+
+#plot accuracy
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+plt.title("Accuracy over Epochs")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.grid()
+plt.show()
+
+
+
+
+# regression model for sleep quality
+y_reg = np.asarray(df['Quality of Sleep'])
+
+#split manually again
+y_train_reg = y_reg[:train_split]
+y_val_reg = y_reg[train_split:val_split]
+y_test_reg = y_reg[val_split:]
+
+#create model with 2 hidden layers, 1 output
+reg_model = Sequential([
+    Input(shape=(X_train.shape[1],)),
+    Dense(16, activation='relu'),
+    Dense(8, activation='relu'),
+    Dense(1, activation='linear') 
+])
+
+#compile
+reg_model.compile(
+    optimizer='adam',
+    loss='mse',
+    metrics=['mae', 'mse']
+)
+
+#train
+reg_history = reg_model.fit(
+    X_train, y_train_reg,
+    validation_data=(X_val, y_val_reg),
+    epochs=10,
+    batch_size=32
+)
+
+#evaluate
+reg_loss = reg_model.evaluate(X_test, y_test_reg, verbose=0)
+print("\nRegression Test Loss (MSE, MAE):", reg_loss)
+
+#plot loss
+plt.plot(reg_history.history['loss'], label='Train Loss')
+plt.plot(reg_history.history['val_loss'], label='Val Loss')
+plt.title("Regression Loss Over Epochs")
+plt.xlabel("Epochs")
+plt.ylabel("MSE")
+plt.legend()
+plt.grid()
+plt.show()
+
+#predict and compare visually
+predictions = reg_model.predict(X_test).flatten()
+
+plt.figure(figsize=(6,6))
+plt.scatter(y_test_reg, predictions, alpha=0.6)
+plt.xlabel("True Sleep Quality")
+plt.ylabel("Predicted Sleep Quality")
+plt.title("True vs Predicted Sleep Quality")
+plt.grid()
+plt.savefig('sleep_quality_regression.png')
+plt.show()
+
+
+
+
+
+#regression model for stress level
+y_stress = np.asarray(df['Stress Level'])
+
+#split
+y_train_stress = y_stress[:train_split]
+y_val_stress = y_stress[train_split:val_split]
+y_test_stress = y_stress[val_split:]
+
+#create model
+stress_model = Sequential([
+    Input(shape=(X_train.shape[1],)),
+    Dense(16, activation='relu'),
+    Dense(8, activation='relu'),
+    Dense(1, activation='linear')
+])
+
+#compile
+stress_model.compile(
+    optimizer='adam',
+    loss='mse',
+    metrics=['mae']
+)
+
+#train
+stress_history = stress_model.fit(
+    X_train, y_train_stress,
+    validation_data=(X_val, y_val_stress),
+    epochs=10,
+    batch_size=32
+)
+
+#evaluate
+stress_loss = stress_model.evaluate(X_test, y_test_stress, verbose=0)
+print("\nStress Prediction Test Loss (MSE, MAE):", stress_loss)
+
+#plot predictions
+stress_preds = stress_model.predict(X_test).flatten()
+
+plt.figure(figsize=(6,6))
+plt.scatter(y_test_stress, stress_preds, alpha=0.6, color='orange')
+plt.xlabel("True Stress Level")
+plt.ylabel("Predicted Stress Level")
+plt.title("True vs Predicted Stress Level")
+plt.grid()
+plt.savefig("stress_level_regression.png")
+plt.show()
+
+
+
